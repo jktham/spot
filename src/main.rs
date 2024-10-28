@@ -25,6 +25,8 @@ struct Playback {
     artist: String,
     progress: i64,
     duration: i64,
+    repeat_state: String,
+    shuffle_state: bool,
 }
 
 fn main() -> Result<(), Err> {
@@ -67,28 +69,32 @@ fn main() -> Result<(), Err> {
 
         if event::poll(Duration::from_millis(1000))? {
             match event::read()? {
-                Event::Key(event) => input(event, &client, &creds),
-                Event::FocusGained => Ok(()),
-                Event::FocusLost => Ok(()),
-                Event::Mouse(_) => Ok(()),
-                Event::Paste(_) => Ok(()),
-                Event::Resize(_, _) => Ok(()),
-            }?;
+                Event::Key(event) => input(event, &client, &creds, &playback)?,
+                Event::FocusGained => (),
+                Event::FocusLost => (),
+                Event::Mouse(_) => (),
+                Event::Paste(_) => (),
+                Event::Resize(_, _) => (),
+            };
         }
 
         frame += 1;
     }
 }
 
-fn input(event: KeyEvent, client: &Client, creds: &Creds) -> Result<(), Err> {
-    if event.code == KeyCode::Char('q') {
-        quit()?;
-    } else if event.code == KeyCode::Char('r') {
-        test_request(&client, &creds)?;
-    } else if event.code == KeyCode::Char('p') {
-        test_request_playback(&client, &creds)?;
-    }
-    
+fn input(event: KeyEvent, client: &Client, creds: &Creds, playback: &Playback) -> Result<(), Err> {
+    match event.code {
+        KeyCode::Char('q') => quit()?,
+        KeyCode::Char(' ') => playback_toggle(&client, &creds, &playback)?,
+        KeyCode::Char('d') => playback_next(&client, &creds)?,
+        KeyCode::Char('a') => playback_prev(&client, &creds)?,
+        KeyCode::Char('r') => playback_repeat(&client, &creds, &playback)?,
+        KeyCode::Char('f') => playback_shuffle(&client, &creds, &playback)?,
+        KeyCode::Char('y') => test_request(&client, &creds)?,
+        KeyCode::Char('x') => test_request_playback(&client, &creds)?,
+        _ => (),
+    };
+
     return Ok(());
 }
 
@@ -101,7 +107,7 @@ fn draw_ui(playback: &Playback, frame: &i32) -> Result<(), Err> {
     };
 
     clear()?;
-    draw_rect(0, 0, 50, 7, bg)?;
+    draw_rect(0, 0, 50, 8, bg)?;
 
     let indicator: &str = match frame % 2 {
         0 => "/",
@@ -122,9 +128,100 @@ fn draw_ui(playback: &Playback, frame: &i32) -> Result<(), Err> {
         draw_text(2, 4, &playback.title, fg)?;
         draw_text(2, 5, &playback.album, fg)?;
         draw_text(2, 6, &playback.artist, fg)?;
+        draw_text(2, 7, &format!("repeat: {}, shuffle: {}", &playback.repeat_state, &playback.shuffle_state), fg)?;
     }
 
     stdout().flush()?;
+    return Ok(());
+}
+
+fn playback_toggle(client: &Client, creds: &Creds, playback: &Playback) -> Result<(), Err> {
+    if playback.is_playing {
+        let res = client.put("https://api.spotify.com/v1/me/player/pause")
+            .bearer_auth(&creds.access_token)
+            .body("")
+            .send()?
+            .text()?
+        ;
+        let v: Value = serde_json::from_str(&res).unwrap_or(Value::Null);
+        println!("playback_toggle: {v}");
+
+    } else {
+        let res = client.put("https://api.spotify.com/v1/me/player/play")
+            .bearer_auth(&creds.access_token)
+            .body("")
+            .send()?
+            .text()?
+        ;
+        let v: Value = serde_json::from_str(&res).unwrap_or(Value::Null);
+        println!("playback_toggle: {v}");
+
+    }
+
+    return Ok(());
+}
+
+fn playback_next(client: &Client, creds: &Creds) -> Result<(), Err> {
+    let res = client.post("https://api.spotify.com/v1/me/player/next")
+        .bearer_auth(&creds.access_token)
+        .body("")
+        .send()?
+        .text()?
+    ;
+    let v: Value = serde_json::from_str(&res).unwrap_or(Value::Null);
+    println!("playback_next: {v}");
+
+    return Ok(());
+}
+
+fn playback_prev(client: &Client, creds: &Creds) -> Result<(), Err> {
+    let res = client.post("https://api.spotify.com/v1/me/player/previous")
+        .bearer_auth(&creds.access_token)
+        .body("")
+        .send()?
+        .text()?
+    ;
+    let v: Value = serde_json::from_str(&res).unwrap_or(Value::Null);
+    println!("playback_prev: {v}");
+
+    return Ok(());
+}
+
+fn playback_repeat(client: &Client, creds: &Creds, playback: &Playback) -> Result<(), Err> {
+    let state = match playback.repeat_state.as_str() {
+        "off" => "track",
+        "track" => "context",
+        "context" => "off",
+        _ => "off",
+    };
+
+    let res = client.put(format!("https://api.spotify.com/v1/me/player/repeat?state={state}"))
+        .bearer_auth(&creds.access_token)
+        .body("")
+        .send()?
+        .text()?
+    ;
+    let v: Value = serde_json::from_str(&res).unwrap_or(Value::Null);
+    println!("playback_repeat: {v}");
+
+    return Ok(());
+}
+
+fn playback_shuffle(client: &Client, creds: &Creds, playback: &Playback) -> Result<(), Err> {
+    let state = match playback.shuffle_state {
+        false => "true",
+        true => "false",
+    };
+
+    let res = client.put(format!("https://api.spotify.com/v1/me/player/shuffle?state={state}"))
+        .bearer_auth(&creds.access_token)
+        .body("")
+        .send()?
+        .text()?
+    ;
+    let v: Value = serde_json::from_str(&res).unwrap_or(Value::Null);
+    println!("playback_shuffle: {v}");
+
     return Ok(());
 }
 
@@ -145,6 +242,8 @@ fn get_playback(client: &Client, creds: &Creds) -> Result<Playback, Err> {
         artist: "".to_string(),
         progress: 0,
         duration: 0,
+        repeat_state: "".to_string(),
+        shuffle_state: false,
     };
     
     playback.is_active = v.as_str().unwrap_or("") != "inactive";
@@ -154,6 +253,8 @@ fn get_playback(client: &Client, creds: &Creds) -> Result<Playback, Err> {
     playback.artist = v["item"]["artists"][0]["name"].as_str().unwrap_or("").to_string();
     playback.progress = v["progress_ms"].as_i64().unwrap_or(0);
     playback.duration = v["item"]["duration_ms"].as_i64().unwrap_or(0);
+    playback.repeat_state = v["repeat_state"].as_str().unwrap_or("").to_string();
+    playback.shuffle_state =  v["shuffle_state"].as_bool().unwrap_or(false);
 
     return Ok(playback);
 }
