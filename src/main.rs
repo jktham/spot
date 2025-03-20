@@ -39,7 +39,7 @@ fn main() -> Result<(), Err> {
 
     let creds_string = std::fs::read_to_string("./creds.toml")?;
     let mut creds: Creds = toml::from_str(&creds_string)?;
-    println!("file creds: {creds:?}");
+    // println!("file creds: {creds:?}");
 
     if creds.client_id == "" || creds.client_secret == "" {
         println!("no api client creds");
@@ -56,7 +56,7 @@ fn main() -> Result<(), Err> {
         std::fs::write("./creds.toml", creds_string)?;
 
     }
-    println!("new creds: {creds:?}");
+    // println!("new creds: {creds:?}");
 
     terminal::enable_raw_mode()?;
     stdout().execute(cursor::Hide)?;
@@ -99,6 +99,7 @@ fn input(event: KeyEvent, client: &Client, creds: &Creds, playback: &Playback) -
 }
 
 fn draw_ui(playback: &Playback, frame: &i32) -> Result<(), Err> {
+    let size = (51, 9);
     let bg: Color = Color::Red;
     let fg: Color = match (playback.is_active, playback.is_playing) {
         (false, _) => Color::Red,
@@ -107,29 +108,41 @@ fn draw_ui(playback: &Playback, frame: &i32) -> Result<(), Err> {
     };
 
     clear()?;
-    draw_rect(0, 0, 50, 8, bg)?;
 
     let indicator: &str = match frame % 2 {
         0 => "/",
         1 => "\\",
         _ => "",
     };
-    draw_text(48, 1, indicator, fg)?;
+    draw_text(48, 1, indicator, 0, fg)?;
 
     let state: &str = match (playback.is_active, playback.is_playing) {
         (false, _) => "inactive",
         (true, false) => "paused",
         (true, true) => "playing",
     };
-    draw_text(2, 1, state, fg)?;
+    draw_text(2, 1, state, 0, fg)?;
 
     if playback.is_active {
-        draw_text(2, 2, &format!("{}:{:0>2} / {}:{:0>2}", &playback.progress/1000/60, &playback.progress/1000%60, &playback.duration/1000/60, &playback.duration/1000%60), fg)?;
-        draw_text(2, 4, &playback.title, fg)?;
-        draw_text(2, 5, &playback.album, fg)?;
-        draw_text(2, 6, &playback.artist, fg)?;
-        draw_text(2, 7, &format!("repeat: {}, shuffle: {}", &playback.repeat_state, &playback.shuffle_state), fg)?;
+        draw_text(2, 2, &format!("{}:{:0>2} / {}:{:0>2}", &playback.progress/1000/60, &playback.progress/1000%60, &playback.duration/1000/60, &playback.duration/1000%60), 0, fg)?;
+        draw_text(2, 4, &playback.title, size.0 - 4, fg)?;
+        draw_text(2, 5, &playback.album, size.0 - 4, fg)?;
+        draw_text(2, 6, &playback.artist, size.0 - 4, fg)?;
+        let repeat = match playback.repeat_state.as_str() {
+            "off" => "r ",
+            "track" => "R'",
+            "context" => "R ",
+            _ => "",
+        };
+        let shuffle = match playback.shuffle_state {
+            false => "s",
+            true => "S",
+        };
+        draw_text(2, 7, &format!("{}/ {}", repeat, shuffle), 0, fg)?;
     }
+
+    draw_fill(size.0-2, 4, size.0+50, 6, ' ', bg)?;
+    draw_rect(0, 0, size.0-1, size.1-1, bg)?;
 
     stdout().flush()?;
     return Ok(());
@@ -137,24 +150,20 @@ fn draw_ui(playback: &Playback, frame: &i32) -> Result<(), Err> {
 
 fn playback_toggle(client: &Client, creds: &Creds, playback: &Playback) -> Result<(), Err> {
     if playback.is_playing {
-        let res = client.put("https://api.spotify.com/v1/me/player/pause")
+        let _res = client.put("https://api.spotify.com/v1/me/player/pause")
             .bearer_auth(&creds.access_token)
             .body("")
             .send()?
             .text()?
         ;
-        let v: Value = serde_json::from_str(&res).unwrap_or(Value::Null);
-        println!("playback_toggle: {v}");
 
     } else {
-        let res = client.put("https://api.spotify.com/v1/me/player/play")
+        let _res = client.put("https://api.spotify.com/v1/me/player/play")
             .bearer_auth(&creds.access_token)
             .body("")
             .send()?
             .text()?
         ;
-        let v: Value = serde_json::from_str(&res).unwrap_or(Value::Null);
-        println!("playback_toggle: {v}");
 
     }
 
@@ -162,47 +171,41 @@ fn playback_toggle(client: &Client, creds: &Creds, playback: &Playback) -> Resul
 }
 
 fn playback_next(client: &Client, creds: &Creds) -> Result<(), Err> {
-    let res = client.post("https://api.spotify.com/v1/me/player/next")
+    let _res = client.post("https://api.spotify.com/v1/me/player/next")
         .bearer_auth(&creds.access_token)
         .body("")
         .send()?
         .text()?
     ;
-    let v: Value = serde_json::from_str(&res).unwrap_or(Value::Null);
-    println!("playback_next: {v}");
 
     return Ok(());
 }
 
 fn playback_prev(client: &Client, creds: &Creds) -> Result<(), Err> {
-    let res = client.post("https://api.spotify.com/v1/me/player/previous")
+    let _res = client.post("https://api.spotify.com/v1/me/player/previous")
         .bearer_auth(&creds.access_token)
         .body("")
         .send()?
         .text()?
     ;
-    let v: Value = serde_json::from_str(&res).unwrap_or(Value::Null);
-    println!("playback_prev: {v}");
 
     return Ok(());
 }
 
 fn playback_repeat(client: &Client, creds: &Creds, playback: &Playback) -> Result<(), Err> {
     let state = match playback.repeat_state.as_str() {
-        "off" => "track",
-        "track" => "context",
-        "context" => "off",
+        "off" => "context",
+        "context" => "track",
+        "track" => "off",
         _ => "off",
     };
 
-    let res = client.put(format!("https://api.spotify.com/v1/me/player/repeat?state={state}"))
+    let _res = client.put(format!("https://api.spotify.com/v1/me/player/repeat?state={state}"))
         .bearer_auth(&creds.access_token)
         .body("")
         .send()?
         .text()?
     ;
-    let v: Value = serde_json::from_str(&res).unwrap_or(Value::Null);
-    println!("playback_repeat: {v}");
 
     return Ok(());
 }
@@ -213,14 +216,12 @@ fn playback_shuffle(client: &Client, creds: &Creds, playback: &Playback) -> Resu
         true => "false",
     };
 
-    let res = client.put(format!("https://api.spotify.com/v1/me/player/shuffle?state={state}"))
+    let _res = client.put(format!("https://api.spotify.com/v1/me/player/shuffle?state={state}"))
         .bearer_auth(&creds.access_token)
         .body("")
         .send()?
         .text()?
     ;
-    let v: Value = serde_json::from_str(&res).unwrap_or(Value::Null);
-    println!("playback_shuffle: {v}");
 
     return Ok(());
 }
@@ -234,27 +235,17 @@ fn get_playback(client: &Client, creds: &Creds) -> Result<Playback, Err> {
 
     let v: Value = serde_json::from_str(&res).unwrap_or(Value::String("inactive".to_string()));
 
-    let mut playback = Playback {
-        is_active: false,
-        is_playing: false,
-        title: "".to_string(),
-        album: "".to_string(),
-        artist: "".to_string(),
-        progress: 0,
-        duration: 0,
-        repeat_state: "".to_string(),
-        shuffle_state: false,
+    let playback = Playback {
+        is_active: v.as_str().unwrap_or("") != "inactive",
+        is_playing:  v["is_playing"].as_bool().unwrap_or(false),
+        title: v["item"]["name"].as_str().unwrap_or("").to_string(),
+        album: v["item"]["album"]["name"].as_str().unwrap_or("").to_string(),
+        artist: v["item"]["artists"][0]["name"].as_str().unwrap_or("").to_string(),
+        progress: v["progress_ms"].as_i64().unwrap_or(0),
+        duration: v["item"]["duration_ms"].as_i64().unwrap_or(0),
+        repeat_state: v["repeat_state"].as_str().unwrap_or("").to_string(),
+        shuffle_state:  v["shuffle_state"].as_bool().unwrap_or(false),
     };
-    
-    playback.is_active = v.as_str().unwrap_or("") != "inactive";
-    playback.is_playing =  v["is_playing"].as_bool().unwrap_or(false);
-    playback.title = v["item"]["name"].as_str().unwrap_or("").to_string();
-    playback.album = v["item"]["album"]["name"].as_str().unwrap_or("").to_string();
-    playback.artist = v["item"]["artists"][0]["name"].as_str().unwrap_or("").to_string();
-    playback.progress = v["progress_ms"].as_i64().unwrap_or(0);
-    playback.duration = v["item"]["duration_ms"].as_i64().unwrap_or(0);
-    playback.repeat_state = v["repeat_state"].as_str().unwrap_or("").to_string();
-    playback.shuffle_state =  v["shuffle_state"].as_bool().unwrap_or(false);
 
     return Ok(playback);
 }
@@ -352,15 +343,29 @@ fn clear() -> Result<(), Err> {
     return Ok(());
 }
 
-fn draw_text(x: u16, y: u16, t: &str, color: Color) -> Result<(), Err> {
+fn draw_text(x: i32, y: i32, text: &str, length: i32, color: Color) -> Result<(), Err> {
+    if x < 0 || y < 0 {
+        return Ok(());
+    }
+    let mut t = String::from(text);
+    if length > 0 {
+        t = text.chars().into_iter().take(length as usize).collect::<String>();
+        if length > 3 && text.chars().into_iter().count() > length as usize {
+            t = text.chars().into_iter().take((length-3) as usize).collect::<String>();
+            t += "...";
+        }
+    }
     stdout()
-        .queue(cursor::MoveTo(x, y))?
+        .queue(cursor::MoveTo(x as u16, y as u16))?
         .queue(style::PrintStyledContent(t.with(color)))?
     ;
     return Ok(());
 }
 
-fn draw_rect(x1: u16, y1: u16, x2: u16, y2: u16, color: Color) -> Result<(), Err> {
+fn draw_rect(x1: i32, y1: i32, x2: i32, y2: i32, color: Color) -> Result<(), Err> {
+    if x1 < 0 || y1 < 0 || x1 > x2 || y1 > y2 {
+        return Ok(());
+    }
     for x in x1..=x2 {
         for y in y1..=y2 {
             let c: &str = match (x, y) {
@@ -375,11 +380,26 @@ fn draw_rect(x1: u16, y1: u16, x2: u16, y2: u16, color: Color) -> Result<(), Err
 
             if c != "" {
                 stdout()
-                    .queue(cursor::MoveTo(x, y))?
+                    .queue(cursor::MoveTo(x as u16, y as u16))?
                     .queue(style::PrintStyledContent(c.with(color)))?
                 ;
             }
 
+        }
+    }
+    return Ok(());
+}
+
+fn draw_fill(x1: i32, y1: i32, x2: i32, y2: i32, c: char, color: Color) -> Result<(), Err> {
+    if x1 < 0 || y1 < 0 || x1 > x2 || y1 > y2 {
+        return Ok(());
+    }
+    for x in x1..=x2 {
+        for y in y1..=y2 {
+            stdout()
+                .queue(cursor::MoveTo(x as u16, y as u16))?
+                .queue(style::PrintStyledContent(c.with(color)))?
+            ;
         }
     }
     return Ok(());
