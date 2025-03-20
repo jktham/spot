@@ -62,14 +62,15 @@ fn main() -> Result<(), Err> {
     stdout().execute(cursor::Hide)?;
     stdout().execute(terminal::EnterAlternateScreen)?;
 
+    let mut help: bool = false;
     let mut frame: i32 = 0;
     loop {
         let playback = get_playback(&client, &creds)?;
-        draw_ui(&playback, &frame)?;
+        draw_ui(&playback, &frame, &help)?;
 
         if event::poll(Duration::from_millis(1000))? {
             match event::read()? {
-                Event::Key(event) => input(event, &client, &creds, &playback)?,
+                Event::Key(event) => input(event, &client, &creds, &playback, &mut help)?,
                 Event::FocusGained => (),
                 Event::FocusLost => (),
                 Event::Mouse(_) => (),
@@ -82,14 +83,15 @@ fn main() -> Result<(), Err> {
     }
 }
 
-fn input(event: KeyEvent, client: &Client, creds: &Creds, playback: &Playback) -> Result<(), Err> {
+fn input(event: KeyEvent, client: &Client, creds: &Creds, playback: &Playback, help: &mut bool) -> Result<(), Err> {
     match event.code {
         KeyCode::Char('q') => quit()?,
         KeyCode::Char(' ') => playback_toggle(&client, &creds, &playback)?,
         KeyCode::Char('d') => playback_next(&client, &creds)?,
         KeyCode::Char('a') => playback_prev(&client, &creds)?,
         KeyCode::Char('r') => playback_repeat(&client, &creds, &playback)?,
-        KeyCode::Char('f') => playback_shuffle(&client, &creds, &playback)?,
+        KeyCode::Char('s') => playback_shuffle(&client, &creds, &playback)?,
+        KeyCode::Char('h') => *help = !*help,
         KeyCode::Char('y') => test_request(&client, &creds)?,
         KeyCode::Char('x') => test_request_playback(&client, &creds)?,
         _ => (),
@@ -98,7 +100,7 @@ fn input(event: KeyEvent, client: &Client, creds: &Creds, playback: &Playback) -
     return Ok(());
 }
 
-fn draw_ui(playback: &Playback, frame: &i32) -> Result<(), Err> {
+fn draw_ui(playback: &Playback, frame: &i32, help: &bool) -> Result<(), Err> {
     let size = (51, 9);
     let bg: Color = Color::Red;
     let fg: Color = match (playback.is_active, playback.is_playing) {
@@ -109,40 +111,57 @@ fn draw_ui(playback: &Playback, frame: &i32) -> Result<(), Err> {
 
     clear()?;
 
-    let indicator: &str = match frame % 2 {
-        0 => "/",
-        1 => "\\",
-        _ => "",
-    };
-    draw_text(48, 1, indicator, 0, fg)?;
+    if *help {
+        draw_text(size.0 - 3, size.1-2, "H", 0, fg)?;
+        draw_text(size.0 - 6, 1, "spot", 0, fg)?;
+        draw_text(size.0 - 8, 2, "v0.1.0", 0, fg)?;
+        draw_text(2, 1, "[space]       play/pause", 0, fg)?;
+        draw_text(2, 2, "[a]           prev", 0, fg)?;
+        draw_text(2, 3, "[d]           next", 0, fg)?;
+        draw_text(2, 4, "[r]           repeat", 0, fg)?;
+        draw_text(2, 5, "[s]           shuffle", 0, fg)?;
+        draw_text(2, 6, "[h]           help", 0, fg)?;
+        draw_text(2, 7, "[q]           quit", 0, fg)?;
 
-    let state: &str = match (playback.is_active, playback.is_playing) {
-        (false, _) => "inactive",
-        (true, false) => "paused",
-        (true, true) => "playing",
-    };
-    draw_text(2, 1, state, 0, fg)?;
+    } else {
+        draw_text(size.0 - 3, size.1-2, "h", 0, fg)?;
 
-    if playback.is_active {
-        draw_text(2, 2, &format!("{}:{:0>2} / {}:{:0>2}", &playback.progress/1000/60, &playback.progress/1000%60, &playback.duration/1000/60, &playback.duration/1000%60), 0, fg)?;
-        draw_text(2, 4, &playback.title, size.0 - 4, fg)?;
-        draw_text(2, 5, &playback.album, size.0 - 4, fg)?;
-        draw_text(2, 6, &playback.artist, size.0 - 4, fg)?;
-        let repeat = match playback.repeat_state.as_str() {
-            "off" => "r ",
-            "track" => "R'",
-            "context" => "R ",
+        let indicator: &str = match frame % 2 {
+            0 => "/",
+            1 => "\\",
             _ => "",
         };
-        let shuffle = match playback.shuffle_state {
-            false => "s",
-            true => "S",
+        draw_text(48, 1, indicator, 0, fg)?;
+
+        let state: &str = match (playback.is_active, playback.is_playing) {
+            (false, _) => "inactive",
+            (true, false) => "paused",
+            (true, true) => "playing",
         };
-        draw_text(2, 7, &format!("{}/ {}", repeat, shuffle), 0, fg)?;
+        draw_text(2, 1, state, 0, fg)?;
+    
+        if playback.is_active {
+            draw_text(2, 2, &format!("{}:{:0>2} / {}:{:0>2}", &playback.progress/1000/60, &playback.progress/1000%60, &playback.duration/1000/60, &playback.duration/1000%60), 0, fg)?;
+            draw_text(2, 4, &playback.title, size.0 - 4, fg)?;
+            draw_text(2, 5, &playback.album, size.0 - 4, fg)?;
+            draw_text(2, 6, &playback.artist, size.0 - 4, fg)?;
+            let repeat = match playback.repeat_state.as_str() {
+                "off" => "r ",
+                "track" => "R'",
+                "context" => "R ",
+                _ => "",
+            };
+            let shuffle = match playback.shuffle_state {
+                false => "s",
+                true => "S",
+            };
+            draw_text(2, 7, &format!("{}/ {}", repeat, shuffle), 0, fg)?;
+        }
+
+        draw_fill(size.0 - 2, 4, size.0 + 50, 6, ' ', bg)?;
     }
 
-    draw_fill(size.0-2, 4, size.0+50, 6, ' ', bg)?;
-    draw_rect(0, 0, size.0-1, size.1-1, bg)?;
+    draw_rect(0, 0, size.0 - 1, size.1 - 1, bg)?;
 
     stdout().flush()?;
     return Ok(());
