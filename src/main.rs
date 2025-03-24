@@ -43,6 +43,7 @@ fn main() -> Result<(), Err> {
 
     if creds.client_id == "" || creds.client_secret == "" {
         println!("no api client creds");
+        stdout().execute(terminal::EnterAlternateScreen)?;
         quit()?;
 
     } else if creds.refresh_token == "" {
@@ -65,12 +66,12 @@ fn main() -> Result<(), Err> {
     let mut help: bool = false;
     let mut frame: i32 = 0;
     loop {
-        let playback = get_playback(&client, &creds)?;
+        let mut playback = get_playback(&client, &creds)?;
         draw_ui(&playback, &frame, &help)?;
 
         if event::poll(Duration::from_millis(1000))? {
             match event::read()? {
-                Event::Key(event) => input(event, &client, &creds, &playback, &mut help)?,
+                Event::Key(event) => input(event, &client, &creds, &mut playback, &frame, &mut help)?,
                 Event::FocusGained => (),
                 Event::FocusLost => (),
                 Event::Mouse(_) => (),
@@ -83,14 +84,14 @@ fn main() -> Result<(), Err> {
     }
 }
 
-fn input(event: KeyEvent, client: &Client, creds: &Creds, playback: &Playback, help: &mut bool) -> Result<(), Err> {
+fn input(event: KeyEvent, client: &Client, creds: &Creds, playback: &mut Playback, frame: &i32, help: &mut bool) -> Result<(), Err> {
     match event.code {
         KeyCode::Char('q') => quit()?,
-        KeyCode::Char(' ') => playback_toggle(&client, &creds, &playback)?,
+        KeyCode::Char(' ') => playback_toggle(&client, &creds, playback, frame, help)?,
         KeyCode::Char('d') => playback_next(&client, &creds)?,
         KeyCode::Char('a') => playback_prev(&client, &creds)?,
-        KeyCode::Char('r') => playback_repeat(&client, &creds, &playback)?,
-        KeyCode::Char('s') => playback_shuffle(&client, &creds, &playback)?,
+        KeyCode::Char('r') => playback_repeat(&client, &creds, playback, frame, help)?,
+        KeyCode::Char('s') => playback_shuffle(&client, &creds, playback, frame, help)?,
         KeyCode::Char('h') => *help = !*help,
         KeyCode::Char('y') => test_request(&client, &creds)?,
         KeyCode::Char('x') => test_request_playback(&client, &creds)?,
@@ -167,8 +168,10 @@ fn draw_ui(playback: &Playback, frame: &i32, help: &bool) -> Result<(), Err> {
     return Ok(());
 }
 
-fn playback_toggle(client: &Client, creds: &Creds, playback: &Playback) -> Result<(), Err> {
+fn playback_toggle(client: &Client, creds: &Creds, playback: &mut Playback, frame: &i32, help: &bool) -> Result<(), Err> {
     if playback.is_playing {
+        playback.is_playing = false;
+        draw_ui(playback, frame, help)?;
         let _res = client.put("https://api.spotify.com/v1/me/player/pause")
             .bearer_auth(&creds.access_token)
             .body("")
@@ -177,6 +180,8 @@ fn playback_toggle(client: &Client, creds: &Creds, playback: &Playback) -> Resul
         ;
 
     } else {
+        playback.is_playing = true;
+        draw_ui(playback, frame, help)?;
         let _res = client.put("https://api.spotify.com/v1/me/player/play")
             .bearer_auth(&creds.access_token)
             .body("")
@@ -211,13 +216,15 @@ fn playback_prev(client: &Client, creds: &Creds) -> Result<(), Err> {
     return Ok(());
 }
 
-fn playback_repeat(client: &Client, creds: &Creds, playback: &Playback) -> Result<(), Err> {
+fn playback_repeat(client: &Client, creds: &Creds, playback: &mut Playback, frame: &i32, help: &bool) -> Result<(), Err> {
     let state = match playback.repeat_state.as_str() {
         "off" => "context",
         "context" => "track",
         "track" => "off",
         _ => "off",
     };
+    playback.repeat_state = state.to_string();
+    draw_ui(playback, frame, help)?;
 
     let _res = client.put(format!("https://api.spotify.com/v1/me/player/repeat?state={state}"))
         .bearer_auth(&creds.access_token)
@@ -229,11 +236,13 @@ fn playback_repeat(client: &Client, creds: &Creds, playback: &Playback) -> Resul
     return Ok(());
 }
 
-fn playback_shuffle(client: &Client, creds: &Creds, playback: &Playback) -> Result<(), Err> {
+fn playback_shuffle(client: &Client, creds: &Creds, playback: &mut Playback, frame: &i32, help: &bool) -> Result<(), Err> {
     let state = match playback.shuffle_state {
-        false => "true",
-        true => "false",
+        false => true,
+        true => false,
     };
+    playback.shuffle_state = state;
+    draw_ui(playback, frame, help)?;
 
     let _res = client.put(format!("https://api.spotify.com/v1/me/player/shuffle?state={state}"))
         .bearer_auth(&creds.access_token)
@@ -291,7 +300,7 @@ fn new_auth(client: &Client, creds: &Creds) -> Result<Creds, Err> {
     ;
 
     let v: Value = serde_json::from_str(&res).unwrap();
-    println!("new_auth: {v}");
+    // println!("new_auth: {v}");
 
     let mut creds_new = creds.clone();
     creds_new.access_token = v["access_token"].as_str().unwrap_or("").to_string();
@@ -316,7 +325,7 @@ fn refresh_auth(client: &Client, creds: &Creds) -> Result<Creds, Err> {
     ;
 
     let v: Value = serde_json::from_str(&res).unwrap();
-    println!("refresh_auth: {v}");
+    // println!("refresh_auth: {v}");
 
     let mut creds_new = creds.clone();
     creds_new.access_token = v["access_token"].as_str().unwrap_or("").to_string();
